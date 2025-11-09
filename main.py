@@ -15,15 +15,20 @@ BULLET_SPEED, PLAYER_DAMAGE = 0.8, 30
 WALL_COST, WALL_HP = 40, 100
 
 ENEMY_SPAWN_DISTANCE = 25
+WALL_ATTACK_RADIUS = 4.0
 MONEY_PER_KILL, STARTING_MONEY = 30, 50
 FRAME_DELAY = 0.04
 SAVE_FILE_JSON = "game_save.json"
 
-COLOR_RESET, COLOR_RED, COLOR_GREEN, COLOR_MAGENTA, COLOR_CYAN, COLOR_GRAY, COLOR_YELLOW, COLOR_BLUE = '\033[0m', '\033[91m', '\033[92m', '\033[95m', '\033[96m', '\033[90m', '\033[93m', '\033[94m'
-SYMBOL_EMPTY, SYMBOL_PLAYER, SYMBOL_CORE, SYMBOL_WALL, SYMBOL_PLAYER_WALL, SYMBOL_BULLET, SYMBOL_ENEMY_BASIC = ' ', f'{COLOR_CYAN}@{COLOR_RESET}', f'{COLOR_MAGENTA}◈{COLOR_RESET}', f'{COLOR_GRAY}█{COLOR_RESET}', f'{COLOR_BLUE}▓{COLOR_RESET}', f'{COLOR_YELLOW}•{COLOR_RESET}', f'{COLOR_RED}Ω{COLOR_RESET}'
+
+COLOR_RESET, COLOR_RED, COLOR_GREEN, COLOR_YELLOW, COLOR_BLUE, COLOR_MAGENTA, COLOR_CYAN, COLOR_GRAY, COLOR_ORANGE = '\033[0m', '\033[91m', '\033[92m', '\033[93m', '\033[94m', '\033[95m', '\033[96m', '\033[90m', '\033[38;5;208m'
+SYMBOL_EMPTY, SYMBOL_PLAYER, SYMBOL_CORE, SYMBOL_WALL, SYMBOL_PLAYER_WALL, SYMBOL_BULLET, SYMBOL_ENEMY_BULLET, SYMBOL_ENEMY_BASIC, SYMBOL_ENEMY_FAST, SYMBOL_ENEMY_TANK, SYMBOL_ENEMY_SHOOTER = ' ', f'{COLOR_CYAN}@{COLOR_RESET}', f'{COLOR_MAGENTA}◈{COLOR_RESET}', f'{COLOR_GRAY}█{COLOR_RESET}', f'{COLOR_BLUE}▓{COLOR_RESET}', f'{COLOR_YELLOW}•{COLOR_RESET}', f'{COLOR_RED}●{COLOR_RESET}', f'{COLOR_RED}Ω{COLOR_RESET}', f'{COLOR_ORANGE}δ{COLOR_RESET}', f'{COLOR_RED}Φ{COLOR_RESET}', f'{COLOR_RED}Ψ{COLOR_RESET}'
 
 ENEMY_TYPES = {
-    'basic': {'hp': 30, 'hp_w': 5, 'dmg': 10, 'dmg_w': 2, 'speed': 0.45, 'symbol': SYMBOL_ENEMY_BASIC}
+    'basic': {'hp': 30, 'hp_w': 5, 'dmg': 10, 'dmg_w': 2, 'speed': 0.45, 'symbol': SYMBOL_ENEMY_BASIC},
+    'fast': {'hp': 20, 'hp_w': 3, 'dmg': 5, 'dmg_w': 1, 'speed': 0.25, 'symbol': SYMBOL_ENEMY_FAST},
+    'tank': {'hp': 60, 'hp_w': 10, 'dmg': 15, 'dmg_w': 3, 'speed': 0.65, 'symbol': SYMBOL_ENEMY_TANK},
+    'shooter': {'hp': 25, 'hp_w': 4, 'dmg': 8, 'dmg_w': 2, 'speed': 0.55, 'symbol': SYMBOL_ENEMY_SHOOTER, 'range': 15}
 }
 
 distance_sq = lambda p1, p2: (p1[0] - p2[0])**2 + (p1[1] - p2[1])**2
@@ -49,6 +54,13 @@ class Player(GameObject):
         self.last_move_time, self.last_shoot_time = 0, 0
         self._money, self.kills = STARTING_MONEY, 0
 
+    @property
+    def money(self): return self._money
+    @money.setter
+    def money(self, value): self._money = max(0, value)
+    @property
+    def is_dead(self): return self.hp <= 0
+
     def move(self, dx, dy, /, game_map, enemies):
         if time.time() - self.last_move_time < PLAYER_SPEED: return False
         new_x, new_y = self.x + dx, self.y + dy
@@ -67,25 +79,28 @@ class Player(GameObject):
 
     def take_damage(self, damage): self.hp = max(0, self.hp - damage)
     def spend_money(self, amount):
-        if self._money >= amount: self._money -= amount; return True
+        if self.money >= amount: self.money -= amount; return True
         return False
-    
-    @property
-    def is_dead(self): return self.hp <= 0
 
 class Bullet(GameObject):
     def __init__(self, x, y, dx, dy, damage, is_player_bullet):
-        super().__init__(x, y, SYMBOL_BULLET)
+        super().__init__(x, y, SYMBOL_BULLET if is_player_bullet else SYMBOL_ENEMY_BULLET)
         self.dx, self.dy, self.damage, self.is_player_bullet = dx, dy, damage, is_player_bullet
     
     def update(self, game_map):
+        prev_x, prev_y = self.get_grid_pos()
         self.x += self.dx * BULLET_SPEED
         self.y += self.dy * BULLET_SPEED
         new_x, new_y = self.get_grid_pos()
 
-        if not (0 < self.x < MAP_WIDTH - 1 and 0 < self.y < MAP_HEIGHT - 1) or game_map[new_y][new_x] == 'wall':
+        if not (0 < self.x < MAP_WIDTH - 1 and 0 < self.y < MAP_HEIGHT - 1):
             self.active = False
             return False
+
+        if prev_x != new_x and prev_y != new_y:
+            if game_map[prev_y][new_x] == 'wall' and game_map[new_y][prev_x] == 'wall':
+                self.active = False
+                return False
         return True
 
     def get_grid_pos(self): return int(round(self.x)), int(round(self.y))
@@ -99,6 +114,16 @@ class Wall(GameObject):
         if self.hp <= 0: self.active = False
         return not self.active
 
+class Shooting: 
+    def try_shoot(self, target_x, target_y):
+        if time.time() - self.last_shoot_time < self.shoot_cooldown: return None
+        dx, dy = target_x - self.x, target_y - self.y
+        dist = distance((self.x, self.y), (target_x, target_y))
+        if 0 < dist <= self.shoot_range:
+            self.last_shoot_time = time.time()
+            return Bullet(self.x, self.y, dx / dist, dy / dist, self.damage, False)
+        return None
+
 class Enemy(GameObject):
     def __init__(self, x, y, wave, type_key):
         stats = ENEMY_TYPES[type_key]
@@ -107,15 +132,18 @@ class Enemy(GameObject):
         self.damage = stats['dmg'] + wave * stats['dmg_w']
         self.speed = stats['speed']
         self.last_move_time, self.last_attack_time = 0, 0
-        self.attack_cooldown = 1.0
+        self.attack_cooldown, self.wall_attack_cooldown = 1.0, 0.8
+        self.last_wall_attack_time = 0
+        self.is_melee = 'range' not in stats
 
     @property
     def is_dead(self): return self.hp <= 0
     def take_damage(self, damage): self.hp = max(0, self.hp - damage)
-    def is_adjacent_to(self, target_x, target_y): return abs(self.x - target_x) + abs(self.y - target_y) <= 1
+    def is_adjacent_to(self, target_x, target_y): return abs(self.x - target_x) + abs(self.y - target_y) == 1
 
     def move_towards(self, target_x, target_y, game):
-        if time.time() - self.last_move_time < self.speed: return
+        if time.time() - self.last_move_time < self.speed:
+            return
         self.last_move_time = time.time()
 
         dx = target_x - self.x
@@ -125,21 +153,57 @@ class Enemy(GameObject):
         
         primary_move, secondary_move = ((step_x, 0), (0, step_y)) if abs(dx) > abs(dy) else ((0, step_y), (step_x, 0))
 
-        if self._try_move_to(self.x + primary_move[0], self.y + primary_move[1], game): return
-        if self._try_move_to(self.x + secondary_move[0], self.y + secondary_move[1], game): return
+        if self._try_move_to(self.x + primary_move[0], self.y + primary_move[1], game):
+            return
+
+        if self._try_move_to(self.x + secondary_move[0], self.y + secondary_move[1], game):
+            return
 
     def _try_move_to(self, nx, ny, game):
-        if not (0 < nx < MAP_WIDTH - 1 and 0 < ny < MAP_HEIGHT - 1) or game.map[ny][nx] == 'wall' or \
-           (nx, ny) == (game.player.x, game.player.y) or (nx, ny) == (game.core.x, game.core.y) or \
-           any(e.x == nx and e.y == ny for e in game.enemies if e is not self):
+        if self._can_stand(nx, ny, game):
+            self.x, self.y = nx, ny
+            return True
+
+        if game.map[ny][nx] == 'wall':
+            is_player_wall = False
+            wall = None
+            for w in game.walls:
+                if w.x == nx and w.y == ny and w.active:
+                    is_player_wall = True
+                    wall = w
+                    break
+            
+            if is_player_wall and distance((nx, ny), (game.core.x, game.core.y)) <= WALL_ATTACK_RADIUS:
+                if time.time() - self.last_wall_attack_time > self.wall_attack_cooldown:
+                    self.last_wall_attack_time = time.time()
+                    if wall.take_damage(self.damage) and self.is_melee:
+                        self.hp = 0
+                return False
+        return False
+
+    def _can_stand(self, x, y, game):
+        if not (0 < x < MAP_WIDTH - 1 and 0 < y < MAP_HEIGHT - 1):
             return False
-        self.x, self.y = nx, ny
+        if game.map[y][x] == 'wall':
+            return False
+        if (x, y) == (game.player.x, game.player.y) or (x, y) == (game.core.x, game.core.y):
+            return False
+        if any(e.x == x and e.y == y for e in game.enemies if e is not self):
+            return False
         return True
 
     def attack_target(self, target):
         if time.time() - self.last_attack_time > self.attack_cooldown:
             self.last_attack_time = time.time()
             target.take_damage(self.damage)
+
+class EnemyShooter(Shooting, Enemy): 
+    def __init__(self, x, y, wave, type_key='shooter'):
+        Enemy.__init__(self, x, y, wave, type_key)
+        stats = ENEMY_TYPES[type_key]
+        self.shoot_range = stats.get('range', 0)
+        self.shoot_cooldown = 2.5
+        self.last_shoot_time = 0
 
 class Game:
     def __init__(self):
@@ -153,6 +217,7 @@ class Game:
         self.player = Player(CORE_X + 3, CORE_Y + 3)
         self.enemies, self.bullets, self.walls = [], [], []
         self.last_frame = ""
+        self.encountered_enemy_types = set()
         os.system('')
 
     def _create_map(self):
@@ -165,14 +230,57 @@ class Game:
             if distance((x, y), (CORE_X, CORE_Y)) > 4: game_map[y][x] = 'wall'
         return game_map
 
+    def save_game(self):
+        p_data = {k: v for k, v in self.player.__dict__.items() if not k.startswith('last_')}
+        c_data = {'x': self.core.x, 'y': self.core.y, 'hp': self.core.hp, 'max_hp': self.core.max_hp}
+        w_data = [{'x': w.x, 'y': w.y, 'hp': w.hp} for w in self.walls if w.active]
+        state = {'player': p_data, 'core': c_data, 'wave': self.wave, 'walls': w_data}
+        try:
+            with open(SAVE_FILE_JSON, 'w', encoding='utf-8') as f: json.dump(state, f, indent=2)
+            return True
+        except IOError: return False
+
+    def load_game(self):
+        if not os.path.exists(SAVE_FILE_JSON): return False
+        try:
+            with open(SAVE_FILE_JSON, 'r', encoding='utf-8') as f: data = json.load(f)
+            self.player.__dict__.update(data['player'])
+            self.core.__dict__.update(data['core'])
+            self.wave = data['wave']
+            self.walls.clear()
+            for wall_data in data.get('walls', []):
+                wall = Wall(wall_data['x'], wall_data['y'])
+                wall.hp = wall_data['hp']
+                self.walls.append(wall)
+                self.map[wall.y][wall.x] = 'wall'
+            self.player.x, self.player.y = self._find_safe_spawn_point()
+            self.inter_wave_pause = True
+            return True
+        except (IOError, json.JSONDecodeError): return False
+            
+    def _find_safe_spawn_point(self):
+        for r in range(1, 10):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if abs(dx) + abs(dy) != r: continue
+                    x, y = self.core.x + dx, self.core.y + dy
+                    if 0 < x < MAP_WIDTH - 1 and 0 < y < MAP_HEIGHT - 1 and self.map[y][x] != 'wall':
+                        return x, y
+        return self.core.x + 3, self.core.y + 3
+
     def spawn_wave(self):
         self.wave += 1
         self.wave_in_progress = True
         self.enemies.clear()
+        self.player.x, self.player.y = self._find_safe_spawn_point()
         
         num_enemies = 4 + self.wave * 2
+        enemy_chances = {'basic': 50, 'fast': 30, 'tank': 20}
+        if self.wave >= 3: enemy_chances['shooter'] = 15
         
-        for _ in range(num_enemies):
+        enemy_types_to_spawn = random.choices(list(enemy_chances.keys()), weights=list(enemy_chances.values()), k=num_enemies)
+        
+        for enemy_type in enemy_types_to_spawn:
             for _ in range(50):
                 side = random.randint(0, 3)
                 if side < 2: x, y = random.randint(5, MAP_WIDTH - 5), 2 if side == 0 else MAP_HEIGHT - 3
@@ -180,7 +288,9 @@ class Game:
                 if distance((x, y), (self.player.x, self.player.y)) > ENEMY_SPAWN_DISTANCE: break
             else: continue
             
-            self.enemies.append(Enemy(x, y, self.wave, 'basic'))
+            self.encountered_enemy_types.add(enemy_type)
+            if enemy_type == 'shooter': self.enemies.append(EnemyShooter(x, y, self.wave))
+            else: self.enemies.append(Enemy(x, y, self.wave, enemy_type))
     
     def _update_bullets(self):
         bullets_to_keep = []
@@ -195,7 +305,7 @@ class Game:
                     if not enemy.is_dead and (enemy.x, enemy.y) == (bx, by):
                         enemy.take_damage(bullet.damage)
                         hit_target = True
-                        if enemy.is_dead: self.player._money += MONEY_PER_KILL; self.player.kills += 1
+                        if enemy.is_dead: self.player.money += MONEY_PER_KILL; self.player.kills += 1
                         break
             else:
                 if (self.player.x, self.player.y) == (bx, by): self.player.take_damage(bullet.damage); hit_target = True
@@ -203,11 +313,12 @@ class Game:
             
             if hit_target: continue
 
-            if self.map[by][bx] == 'wall' and not bullet.is_player_bullet:
-                for wall in self.walls:
-                    if (wall.x, wall.y) == (bx, by):
-                        wall.take_damage(bullet.damage)
-                        break
+            if self.map[by][bx] == 'wall':
+                if not bullet.is_player_bullet:
+                    for wall in self.walls:
+                        if (wall.x, wall.y) == (bx, by):
+                            wall.take_damage(bullet.damage)
+                            break
                 continue
                 
             bullets_to_keep.append(bullet)
@@ -221,6 +332,9 @@ class Game:
             target = self.core if dist_to_core_sq < dist_to_player_sq else self.player
             
             enemy.move_towards(target.x, target.y, self)
+            
+            if isinstance(enemy, Shooting):
+                if (bullet := enemy.try_shoot(target.x, target.y)): self.bullets.append(bullet)
             
             if enemy.is_adjacent_to(target.x, target.y): enemy.attack_target(target)
 
@@ -259,7 +373,8 @@ class Game:
 
     def _handle_inter_wave_input(self, key):
         if key == 'c': self.inter_wave_pause = False; self.spawn_wave()
-        elif key == 'q': self.running = False; self.game_outcome = "exit"
+        elif key == 's': self.save_game(); self.inter_wave_pause = False; self.spawn_wave()
+        elif key == 'x': self.save_game(); self.running = False; self.game_outcome = "exit"
 
     def handle_input(self):
         if msvcrt.kbhit():
@@ -285,6 +400,9 @@ class Game:
         cam_x = max(0, min(self.player.x - CAMERA_WIDTH // 2, MAP_WIDTH - CAMERA_WIDTH))
         cam_y = max(0, min(self.player.y - CAMERA_HEIGHT // 2, MAP_HEIGHT - CAMERA_HEIGHT))
 
+        player_walls_coords = {(w.x, w.y) for w in self.walls}
+        dynamic_objects = {obj.get_grid_pos() if isinstance(obj, Bullet) else (obj.x, obj.y): obj.symbol for obj in self.enemies + self.bullets}
+
         lines = []
         for y in range(CAMERA_HEIGHT):
             row = []
@@ -293,17 +411,10 @@ class Game:
                 coords = (map_x, map_y)
                 cell = SYMBOL_EMPTY
 
-                if any(w.x == map_x and w.y == map_y for w in self.walls): cell = SYMBOL_PLAYER_WALL
+                if coords in player_walls_coords: cell = SYMBOL_PLAYER_WALL
                 elif self.map[map_y][map_x] == 'wall': cell = SYMBOL_WALL
                 
-                dynamic_symbol = None
-                for obj in self.enemies + self.bullets:
-                    obj_coords = obj.get_grid_pos() if isinstance(obj, Bullet) else (obj.x, obj.y)
-                    if obj_coords == coords:
-                        dynamic_symbol = obj.symbol
-                        break
-                
-                if dynamic_symbol: cell = dynamic_symbol
+                if coords in dynamic_objects: cell = dynamic_objects[coords]
                 
                 if coords == (self.core.x, self.core.y): cell = SYMBOL_CORE
                 elif coords == (self.player.x, self.player.y): cell = SYMBOL_PLAYER
@@ -312,10 +423,13 @@ class Game:
             lines.append(''.join(row))
             
         frame_content = '\n'.join(lines) + '\n' + f'{COLOR_CYAN}{"="*CAMERA_WIDTH}{COLOR_RESET}\n'
-        frame_content += f'{COLOR_GREEN}HP: {self.player.hp}{COLOR_RESET} | {COLOR_MAGENTA}Core: {self.core.hp}{COLOR_RESET} | {COLOR_YELLOW}Money: ${self.player._money}{COLOR_RESET} | {COLOR_RED}Wave: {self.wave}{COLOR_RESET} | Enemies: {len(self.enemies)}\n'
+        frame_content += f'{COLOR_GREEN}HP: {self.player.hp}/{self.player.max_hp}{COLOR_RESET} | '
+        frame_content += f'{COLOR_MAGENTA}Core: {self.core.hp}/{self.core.max_hp}{COLOR_RESET} | '
+        frame_content += f'{COLOR_YELLOW}Money: ${self.player.money}{COLOR_RESET} | '
+        frame_content += f'{COLOR_RED}Wave: {self.wave}{COLOR_RESET} | Enemies: {len(self.enemies)}\n'
         
         if self.inter_wave_pause:
-            frame_content += f'{COLOR_YELLOW}WAVE {self.wave} CLEARED!{COLOR_RESET} (C)ontinue | {COLOR_RED}Q{COLOR_RESET}-Quit\n'
+            frame_content += f'{COLOR_YELLOW}WAVE {self.wave} CLEARED!{COLOR_RESET} (C)ontinue | (S)ave & Continue | Save & E(x)it\n'
         else:
             frame_content += f'{COLOR_BLUE}WASD{COLOR_RESET}-Move | {COLOR_YELLOW}B{COLOR_RESET}-Shoot | {COLOR_GREEN}E{COLOR_RESET}-Wall(${WALL_COST}) | {COLOR_RED}Q{COLOR_RESET}-Quit\n'
         
@@ -333,14 +447,66 @@ class Game:
                 self.update()
                 self.render()
                 time.sleep(FRAME_DELAY)
-            return self.game_outcome
+            return self.show_game_over_menu() if self.game_outcome != "exit" else "exit"
         finally:
             print('\033[?25h', end='', flush=True)
             os.system('cls' if os.name == 'nt' else 'clear')
+    
+    def show_game_over_menu(self):
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print(f'\n\n{COLOR_RED}{"="*50}\n{"GAME OVER":^50}\n{"="*50}{COLOR_RESET}\n')
+        reason = "The Core has been destroyed!" if self.core.is_dead else "You have been defeated!"
+        print(f'{COLOR_RED}{reason}{COLOR_RESET}\n')
+        print(f'{COLOR_CYAN}Statistics:{COLOR_RESET}')
+        print(f'  Waves Survived: {self.wave}')
+        print(f'  Enemies Killed: {self.player.kills}')
+        print(f'  Enemy Types Met: {", ".join(sorted(self.encountered_enemy_types))}')
+        
+        while msvcrt.kbhit(): msvcrt.getch()
+        while True:
+            print(f'\n{COLOR_YELLOW}Choose an option:{COLOR_RESET}\n  (1) Start New Game')
+            if os.path.exists(SAVE_FILE_JSON): print('  (2) Load from Save')
+            print('  (3) Exit')
+            try:
+                choice = msvcrt.getch().decode('utf-8')
+                if choice == '1': return 'new_game'
+                if choice == '2' and os.path.exists(SAVE_FILE_JSON): return 'continue'
+                if choice == '3': return 'exit'
+            except UnicodeDecodeError: continue
+
+def show_start_menu():
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f'\n{COLOR_CYAN}{"="*50}\n{"SYSTEM GUARDIAN":^50}\n{"="*50}{COLOR_RESET}\n')
+    
+    if os.path.exists(SAVE_FILE_JSON):
+        print(f'{COLOR_YELLOW}Choose an option:{COLOR_RESET}\n  (1) New Game\n  (2) Continue')
+        while True:
+            try:
+                while msvcrt.kbhit(): msvcrt.getch()
+                choice = msvcrt.getch().decode('utf-8')
+                if choice in ['1', '2']: return 'new_game' if choice == '1' else 'continue'
+            except UnicodeDecodeError: continue
+    else:
+        print(f'{COLOR_GREEN}Press any key to start a new game...{COLOR_RESET}')
+        msvcrt.getch()
+        return 'new_game'
 
 def main():
-    game = Game()
-    game.run()
+    try:
+        next_action = show_start_menu()
+        while next_action != 'exit':
+            game = Game()
+            if next_action == 'continue' and not game.load_game():
+                print("Could not load save file. Starting new game.")
+                time.sleep(2)
+            next_action = game.run()
+    except KeyboardInterrupt:
+        print('\n\nGame interrupted. Goodbye!')
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+    finally:
+        print('\nThanks for playing!')
 
 if __name__ == '__main__':
     main()
