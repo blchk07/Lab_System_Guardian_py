@@ -1,0 +1,50 @@
+import pygame
+
+TILE_SIZE = 48
+SCREEN_WIDTH, SCREEN_HEIGHT = 1008, 720
+FPS = 60
+
+COLOR_BG = (10, 10, 15)
+COLOR_WALL = (45, 50, 60)
+COLOR_FLOOR = (20, 20, 25)
+COLOR_PLAYER = (0, 200, 255)
+COLOR_CORE = (200, 50, 255)
+COLOR_OVERCHARGE = (0, 255, 255)
+COLOR_ENEMY = (255, 60, 60)
+COLOR_ENEMY_RANGED = (255, 150, 50)
+COLOR_SCOUT = (255, 200, 200)
+COLOR_TEXT = (240, 240, 240)
+COLOR_WARNING = (255, 0, 0)
+COLOR_SURVIVAL = (255, 50, 50)
+
+COLOR_PLAYER_WALL = (100, 100, 255)
+COLOR_CRYO_NODE = (0, 191, 255)
+COLOR_CRYO_ZONE = (0, 191, 255, 50)
+COLOR_GRENADE = (0, 255, 0)
+COLOR_EXPLOSION = (255, 200, 50)
+COLOR_SPAWNER = (150, 0, 0)
+COLOR_NODE = (0, 255, 255)
+COLOR_BULLET = (255, 255, 100)
+
+COLOR_BONUS_HP = (0, 255, 150)
+COLOR_BONUS_CORE = (50, 100, 255)
+COLOR_GRENADE_BONUS = (255, 140, 0)
+COLOR_WEAPON_CRATE = (255, 215, 0)
+COLOR_BUFF = (138, 43, 226)
+
+COLOR_UI_BG = (30, 30, 40)
+COLOR_UI_BORDER = (100, 100, 100)
+COLOR_UI_SELECTED = (255, 215, 0)
+COLOR_BUTTON = (50, 150, 50)
+COLOR_BUTTON_HOVER = (70, 180, 70)
+COLOR_BUTTON_DISABLED = (60, 60, 60)
+COLOR_BUTTON_TEXT = (255, 255, 255)
+COLOR_TAB_ACTIVE = (70, 70, 90)
+COLOR_OWNED = (100, 255, 100)
+COLOR_LOCKED = (200, 50, 50)
+
+WEAPON_STATS = {
+    'PISTOL': {'damage': 35, 'rate': 400, 'speed': 13, 'spread': 0.02, 'count': 1, 'range': 700, 'color': (255, 255, 100), 'name': 'PISTOL', 'cost': 0},
+    'RIFLE':  {'damage': 22, 'rate': 110, 'speed': 16, 'spread': 0.06, 'count': 1, 'range': 850, 'color': (100, 255, 255), 'name': 'RIFLE', 'cost': 250},
+    'SHOTGUN': {'damage': 18, 'rate': 950, 'speed': 14, 'spread': 0.25, 'count': 6, 'range': 280, 'color': (255, 100, 50), 'name': 'SHOTGUN', 'cost': 350}
+}
