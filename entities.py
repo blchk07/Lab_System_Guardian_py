@@ -43,8 +43,8 @@ class GridEntity(pygame.sprite.Sprite):
         if self.hp < self.max_hp:
             bar_w = TILE_SIZE - 8
             hp_w = bar_w * (max(0, self.hp) / self.max_hp)
-            pygame.draw.rect(surface, (50, 50, 50), camera.apply_rect(pygame.Rect(self.rect.x + 4, self.rect.y - 10, bar_w, 6)))
-            pygame.draw.rect(surface, (0, 255, 100), camera.apply_rect(pygame.Rect(self.rect.x + 4, self.rect.y - 10, hp_w, 6)))
+            pygame.draw.rect(surface, COLOR_HP_BAR_BG, camera.apply_rect(pygame.Rect(self.rect.x + 4, self.rect.y - 10, bar_w, 6)))
+            pygame.draw.rect(surface, COLOR_HP_BAR_FILL, camera.apply_rect(pygame.Rect(self.rect.x + 4, self.rect.y - 10, hp_w, 6)))
 
 class Player(GridEntity):
     def __init__(self, gx, gy):
@@ -85,7 +85,7 @@ class Enemy(GridEntity):
         super().draw_hp_bar(surface, camera)
         if self.is_slowed:
              center = camera.apply_rect(self.rect).center
-             pygame.draw.circle(surface, (0, 255, 255), (center[0], center[1] - 15), 4)
+             pygame.draw.circle(surface, COLOR_CRYO_NODE, (center[0], center[1] - 15), 4)
 
     def ai_logic(self, player_gx, player_gy, heatmap, game):
         self.check_slow(game)
@@ -97,10 +97,9 @@ class Enemy(GridEntity):
             
             dx, dy = 0, 0
             if dist_to_player < 7 and dist_to_player < (dist_to_core / 2):
-                if player_gx > self.grid_pos.x: dx = 1
-                elif player_gx < self.grid_pos.x: dx = -1
-                elif player_gy > self.grid_pos.y: dy = 1
-                elif player_gy < self.grid_pos.y: dy = -1
+                dx = int(math.copysign(1, player_gx - self.grid_pos.x)) if player_gx != self.grid_pos.x else 0
+                if dx == 0:
+                    dy = int(math.copysign(1, player_gy - self.grid_pos.y)) if player_gy != self.grid_pos.y else 0
             else:
                 curr_val = heatmap.get((int(self.grid_pos.x), int(self.grid_pos.y)), 9999)
                 for move in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
@@ -248,14 +247,14 @@ class BonusItem(pygame.sprite.Sprite):
     def draw_icon(self):
         if self.type == "HEALTH":
             pygame.draw.rect(self.image, COLOR_BONUS_HP, (0, 0, 28, 28), border_radius=4)
-            pygame.draw.rect(self.image, (255,255,255), (11, 4, 6, 20))
-            pygame.draw.rect(self.image, (255,255,255), (4, 11, 20, 6))
+            pygame.draw.rect(self.image, COLOR_ICON_FG, (11, 4, 6, 20))
+            pygame.draw.rect(self.image, COLOR_ICON_FG, (4, 11, 20, 6))
         elif self.type == "CORE_REPAIR":
             pygame.draw.rect(self.image, COLOR_BONUS_CORE, (0, 0, 28, 28), border_radius=4)
-            pygame.draw.circle(self.image, (255,255,255), (14, 14), 8)
+            pygame.draw.circle(self.image, COLOR_ICON_FG, (14, 14), 8)
         elif self.type == "GRENADE_BOX":
             pygame.draw.rect(self.image, COLOR_GRENADE_BONUS, (0, 0, 28, 28), border_radius=4)
-            pygame.draw.circle(self.image, (50, 50, 50), (14, 14), 6)
+            pygame.draw.circle(self.image, COLOR_ICON_DARK, (14, 14), 6)
         elif self.type == "WEAPON_CRATE":
             pygame.draw.rect(self.image, COLOR_WEAPON_CRATE, (0, 0, 28, 28), border_radius=4)
             pygame.draw.line(self.image, (0,0,0), (0,0), (28,28), 2)
@@ -281,7 +280,7 @@ class EnemySpawner(GridEntity):
         self._redraw()
 
     def _redraw(self):
-        self.image.fill((0, 0, 0, 0))
+        self.image.fill(COLOR_TRANSPARENT)
         pygame.draw.rect(self.image, self.color, (2, 2, TILE_SIZE-8, TILE_SIZE-8), border_radius=6)
         if self.scouts_produced < self.max_scouts:
             pygame.draw.circle(self.image, (255, 255, 255), (TILE_SIZE//2-2, TILE_SIZE//2-2), TILE_SIZE//4)
@@ -317,7 +316,7 @@ class CryoNode(GridEntity):
     def __init__(self, gx, gy):
         super().__init__(gx, gy, COLOR_CRYO_NODE)
         pygame.draw.rect(self.image, self.color, (4, 4, TILE_SIZE-8, TILE_SIZE-8), border_radius=4)
-        pygame.draw.circle(self.image, (200, 240, 255), (TILE_SIZE//2-2, TILE_SIZE//2-2), 8)
+        pygame.draw.circle(self.image, COLOR_CRYO_INNER, (TILE_SIZE//2-2, TILE_SIZE//2-2), 8)
         self.hp = 150
         self.max_hp = 150
         self.radius = 2

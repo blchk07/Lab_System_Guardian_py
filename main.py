@@ -565,66 +565,83 @@ class SystemGuardian:
                 if h: self.bullets.remove(b)
 
     def update(self):
-        dt = self.clock.get_time()
-        now = pygame.time.get_ticks()
-        
+        self.dt = self.clock.get_time()
+        self.now = pygame.time.get_ticks()
+
+        self.process_bonuses()
+        self.process_grenades()
+        self.update_structures()
+
         if self.heatmap_dirty:
             self.update_heatmap()
             self.heatmap_dirty = False
 
         self.update_bullets()
-        if self.settings_particles: 
+        if self.settings_particles:
             self.particles = [p for p in self.particles if p.update()]
-        
+
         if self.state == "INTERMISSION":
-            self.intermission_time_left -= dt
-            if self.intermission_time_left <= 0:
-                self.spawn_wave()
-            self.player.update_animation()
-            self.camera.update(self.player)
-            for b in list(self.bonuses):
-                picked_up = self.player.rect.colliderect(b.rect) or (int(self.player.grid_pos.x) == int(b.grid_pos.x) and int(self.player.grid_pos.y) == int(b.grid_pos.y))
-                if picked_up:
-                    if b.type == "WEAPON_CRATE":
-                        remaining = [w for w in WEAPON_STATS.keys() if w not in self.unlocked_weapons]
-                        if remaining:
-                            new_w = random.choice(remaining)
-                            self.unlocked_weapons.append(new_w)
-                            print(f"Unlocked: {new_w}")
-                    elif b.type.startswith("BUFF"):
-                         if b.type == 'BUFF_DMG': self.damage_multiplier += 0.1; self.active_buffs.append("DMG +10%")
-                         elif b.type == 'BUFF_DEF': self.core_defense_mod = max(0.5, self.core_defense_mod - 0.1); self.active_buffs.append("CORE DEF +10%")
-                         elif b.type == 'BUFF_WALL': self.max_walls_extra += 1; self.active_buffs.append("WALL +1")
-                    elif b.type == "HEALTH": self.player.hp = min(self.player.max_hp, self.player.hp + 70)
-                    elif b.type == "GRENADE_BOX": self.add_to_inventory('GRENADE', 3)
-                    elif b.type == "CORE_REPAIR": self.core_hp = min(self.core_max_hp, self.core_hp + 150)
-                    b.kill()
+            self.update_intermission()
             return
 
-        if self.state != "PLAYING": return
+        if self.state != "PLAYING":
+            return
 
         self.player.update_animation()
         self.camera.update(self.player)
+
+        self.update_waves()
         
+        if self.state != "PLAYING":
+            return
+
+        self.update_enemies_logic()
+
+        if self.player.hp <= 0 or self.core_hp <= 0:
+            self.state = "GAMEOVER"
+
+    def update_intermission(self):
+        self.intermission_time_left -= self.dt
+        if self.intermission_time_left <= 0:
+            self.spawn_wave()
+        self.player.update_animation()
+        self.camera.update(self.player)
+        self.process_bonuses()
+
+    def process_bonuses(self):
         for b in list(self.bonuses):
             picked_up = self.player.rect.colliderect(b.rect) or (int(self.player.grid_pos.x) == int(b.grid_pos.x) and int(self.player.grid_pos.y) == int(b.grid_pos.y))
             if picked_up:
                 if b.type == "WEAPON_CRATE":
                     remaining = [w for w in WEAPON_STATS.keys() if w not in self.unlocked_weapons]
-                    if remaining: self.unlocked_weapons.append(random.choice(remaining))
+                    if remaining:
+                        new_w = random.choice(remaining)
+                        self.unlocked_weapons.append(new_w)
+                        print(f"Unlocked: {new_w}")
                 elif b.type.startswith("BUFF"):
-                     if b.type == 'BUFF_DMG': self.damage_multiplier += 0.1; self.active_buffs.append("DMG +10%")
-                     elif b.type == 'BUFF_DEF': self.core_defense_mod = max(0.5, self.core_defense_mod - 0.1); self.active_buffs.append("CORE DEF +10%")
-                     elif b.type == 'BUFF_WALL': self.max_walls_extra += 1; self.active_buffs.append("WALL +1")
-                elif b.type == "HEALTH": self.player.hp = min(self.player.max_hp, self.player.hp + 70)
-                elif b.type == "GRENADE_BOX": self.add_to_inventory('GRENADE', 3)
-                elif b.type == "CORE_REPAIR": self.core_hp = min(self.core_max_hp, self.core_hp + 150)
+                    if b.type == 'BUFF_DMG': 
+                        self.damage_multiplier += 0.1
+                        self.active_buffs.append("DMG +10%")
+                    elif b.type == 'BUFF_DEF': 
+                        self.core_defense_mod = max(0.5, self.core_defense_mod - 0.1)
+                        self.active_buffs.append("CORE DEF +10%")
+                    elif b.type == 'BUFF_WALL': 
+                        self.max_walls_extra += 1
+                        self.active_buffs.append("WALL +1")
+                elif b.type == "HEALTH": 
+                    self.player.hp = min(self.player.max_hp, self.player.hp + 70)
+                elif b.type == "GRENADE_BOX": 
+                    self.add_to_inventory('GRENADE', 3)
+                elif b.type == "CORE_REPAIR": 
+                    self.core_hp = min(self.core_max_hp, self.core_hp + 150)
                 b.kill()
-        
+
+    def process_grenades(self):
         for g in self.grenades_list[:]:
             if g.update():
                 if self.settings_particles:
-                    for _ in range(20): self.particles.append(Particle(g.pos.x, g.pos.y, COLOR_EXPLOSION, speed_mult=2.5, decay_speed=15))
+                    for _ in range(20):
+                        self.particles.append(Particle(g.pos.x, g.pos.y, COLOR_EXPLOSION, speed_mult=2.5, decay_speed=15))
                 blast_rect = pygame.Rect(g.pos.x - g.blast_radius, g.pos.y - g.blast_radius, g.blast_radius*2, g.blast_radius*2)
                 for e in list(self.enemies):
                     if e.rect.colliderect(blast_rect):
@@ -632,51 +649,66 @@ class SystemGuardian:
                             dmg = min(e.hp, g.damage * self.damage_multiplier)
                             e.hp -= dmg
                             self.stats_damage_dealt += dmg
-                            if e.hp <= 0: self.money += e.reward; e.kill()
+                            if e.hp <= 0: 
+                                self.money += e.reward
+                                e.kill()
                 for s in list(self.spawners):
                     if s.rect.colliderect(blast_rect):
-                         s.hp -= g.damage * self.damage_multiplier
-                         if s.hp <= 0: self.money += s.reward; s.kill(); self.update_heatmap()
+                        s.hp -= g.damage * self.damage_multiplier
+                        if s.hp <= 0: 
+                            self.money += s.reward
+                            s.kill()
+                            self.update_heatmap()
                 self.grenades_list.remove(g)
 
-        is_overcharged = now < self.overcharge_finish
-        core_mod = 0.5 if len(self.nodes) > 0 else 1.0
-        if is_overcharged: core_mod = 0
-        core_mod *= self.core_defense_mod 
-        
+    def update_structures(self):
         for w in list(self.player_walls) + list(self.cryo_nodes):
-            if now - w.spawn_time > w.lifetime or w.hp <= 0: w.kill(); self.heatmap_dirty = True
+            if self.now - w.spawn_time > w.lifetime or w.hp <= 0:
+                w.kill()
+                self.heatmap_dirty = True
 
+    def update_waves(self):
         if self.wave_type == "SURVIVAL":
-            self.survival_time_left -= dt
-
-            if now - self.last_survival_spawn > 2000:
+            self.survival_time_left -= self.dt
+            if self.now - self.last_survival_spawn > 2000:
                 self._add_enemy(Enemy, {'speed': 400, 'hp': 50 + self.wave * 5, 'damage': 6})
-                self.last_survival_spawn = now
-                
+                self.last_survival_spawn = self.now
+            
             if self.survival_time_left <= 0:
-                self.money += 500 
-                for e in self.enemies: e.kill() 
+                self.money += 500
+                for e in self.enemies: e.kill()
                 self.start_intermission(is_new_checkpoint=True)
                 return
-
         else:
             for s in self.spawners:
-                if s.scouts_produced < s.max_scouts and now - s.last_spawn > s.spawn_delay:
+                if s.scouts_produced < s.max_scouts and self.now - s.last_spawn > s.spawn_delay:
                     spawn_tile = s.get_adjacent_free_tile(self)
                     if spawn_tile:
                         self.enemies.add(ScoutEnemy(spawn_tile[0], spawn_tile[1], {'hp':40, 'speed':450, 'damage':2.5}))
                         s.scouts_produced += 1
-                        s.last_spawn = now
+                        s.last_spawn = self.now
                         s._redraw()
-                if s.hp <= 0: s.kill(); self.money += s.reward; self.heatmap_dirty = True
+                if s.hp <= 0:
+                    s.kill()
+                    self.money += s.reward
+                    self.heatmap_dirty = True
             
             if len(self.enemies) == 0 and len(self.spawners) == 0:
                 self.start_intermission(is_new_checkpoint=True)
                 return
 
-        for n in list(self.nodes):
-            if n.hp <= 0: n.kill(); self.money += n.reward; self.heatmap_dirty = True; self.trigger_overcharge()
+    def update_enemies_logic(self):
+        for n in list(self.energy_nodes):
+            if n.hp <= 0:
+                n.kill()
+                self.money += n.reward
+                self.heatmap_dirty = True
+                self.trigger_overcharge()
+
+        is_overcharged = self.now < self.overcharge_finish
+        core_mod = 0.5 if len(self.energy_nodes) > 0 else 1.0
+        if is_overcharged: core_mod = 0
+        core_mod *= self.core_defense_mod 
         
         for e in self.enemies:
             e.ai_logic(self.player.grid_pos.x, self.player.grid_pos.y, self.heatmap, self)
@@ -685,13 +717,11 @@ class SystemGuardian:
                 eb = e.try_shoot(pygame.Vector2(self.player.rect.center))
                 if eb: self.bullets.append(eb)
             
-            if e.grid_pos == pygame.Vector2(self.core_gx, self.core_gy): 
+            if e.grid_pos == pygame.Vector2(self.core_gx, self.core_gy):
                 self.core_hp -= e.damage * core_mod
-                self.core_under_attack_timer = now + 1000 
-            elif e.grid_pos == self.player.grid_pos: 
+                self.core_under_attack_timer = self.now + 1000
+            elif e.grid_pos == self.player.grid_pos:
                 self.player.hp -= 0.5
-        
-        if self.player.hp <= 0 or self.core_hp <= 0: self.state = "GAMEOVER"
 
     def draw(self):
         self.screen.fill(COLOR_BG)
@@ -706,7 +736,7 @@ class SystemGuardian:
         elif self.state == "GAMEOVER": self._draw_overlay_bg(); self.draw_gameover()
         if self.state == "INTERMISSION": self.draw_intermission_hud()
             
-        if self.show_fps: self.draw_text(f"FPS: {int(self.clock.get_fps())}", 16, 40, 10, (0, 255, 0))
+        if self.show_fps: self.draw_text(f"FPS: {int(self.clock.get_fps())}", 16, 40, 10, COLOR_MONEY)
         pygame.display.flip()
 
     def _draw_game(self):
@@ -743,12 +773,12 @@ class SystemGuardian:
             mx, my = pygame.mouse.get_pos()
             if cur_item['type'] == 'GRENADE':
                 player_screen_pos = self.camera.apply_rect(self.player.rect).center
-                pygame.draw.circle(self.screen, (100, 255, 100), player_screen_pos, 300, 1) 
+                pygame.draw.circle(self.screen, COLOR_GRENADE_RANGE, player_screen_pos, 300, 1)
                 m_vec = pygame.Vector2(mx, my)
                 p_vec = pygame.Vector2(player_screen_pos)
                 dist_vec = m_vec - p_vec
                 if dist_vec.length() > 300: m_vec = p_vec + dist_vec.normalize() * 300
-                pygame.draw.circle(self.screen, (255, 100, 100), (int(m_vec.x), int(m_vec.y)), 160, 1)
+                pygame.draw.circle(self.screen, COLOR_GRENADE_PREVIEW, (int(m_vec.x), int(m_vec.y)), 160, 1)
             elif cur_item['type'] == 'CRYO':
                  gx, gy = int((mx-self.camera.camera.x)//TILE_SIZE), int((my-self.camera.camera.y)//TILE_SIZE)
                  center = self.camera.apply_rect(pygame.Rect(gx*TILE_SIZE, gy*TILE_SIZE, TILE_SIZE, TILE_SIZE)).center
@@ -770,7 +800,7 @@ class SystemGuardian:
 
     def _draw_overlay_bg(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180))
+        overlay.fill(COLOR_OVERLAY)
         self.screen.blit(overlay, (0, 0))
 
     def draw_main_menu(self):
@@ -858,11 +888,11 @@ class SystemGuardian:
         now = pygame.time.get_ticks()
         is_overcharged = now < self.overcharge_finish
         
-        pygame.draw.rect(self.screen, (40, 40, 40), (20, 20, 260, 22))
+        pygame.draw.rect(self.screen, COLOR_BAR_BG, (20, 20, 260, 22))
         pygame.draw.rect(self.screen, COLOR_CORE if not is_overcharged else COLOR_OVERCHARGE, (20, 20, 260 * (max(0, self.core_hp)/1000), 22))
         self.draw_text(f"CORE: {int(max(0, self.core_hp))}/1000", 16, 150, 31)
         
-        pygame.draw.rect(self.screen, (40, 40, 40), (20, 48, 160, 12))
+        pygame.draw.rect(self.screen, COLOR_BAR_BG, (20, 48, 160, 12))
         pygame.draw.rect(self.screen, COLOR_PLAYER, (20, 48, 160 * (max(0, self.player.hp)/200), 12))
         self.draw_text(f"{int(max(0, self.player.hp))}/200", 10, 100, 54, (255,255,255))
         
@@ -881,6 +911,48 @@ class SystemGuardian:
                 self.draw_text(text_display, 12, SCREEN_WIDTH - 80, y_offset, COLOR_BUFF)
                 y_offset += 15
 
+    def draw_item_slot(self, x, y, size, item, index=None, is_selected=False):
+        rect = pygame.Rect(x, y, size, size)
+        
+        bg_color = COLOR_UI_BG
+        pygame.draw.rect(self.screen, bg_color, rect)
+        
+        border_color = COLOR_UI_SELECTED if is_selected else COLOR_UI_BORDER
+        pygame.draw.rect(self.screen, border_color, rect, 3)
+        
+        if index is not None:
+             self.draw_text(str(index + 1), 12, x + 8, y + 8, (150, 150, 150))
+             
+        if item:
+            center_x = x + size // 2
+            center_y = y + size // 2
+            
+            if item['type'] == 'WEAPON':
+                w_name = item.get('name', 'PISTOL')
+                color = WEAPON_STATS.get(w_name, WEAPON_STATS['PISTOL'])['color']
+                radius = 10 if size >= 60 else 8
+                pygame.draw.circle(self.screen, color, (center_x, center_y), radius)
+                
+                font_size = 12 if size < 60 else 14
+                txt = w_name[:3] if size >= 60 else w_name[:1]
+                text_col = (255, 255, 255) if size < 60 else COLOR_TEXT
+                self.draw_text(txt, font_size, center_x, y + size - 10, text_col)
+                
+            elif item['type'] == 'WALL':
+                pad = 15 if size >= 60 else 10
+                pygame.draw.rect(self.screen, COLOR_PLAYER_WALL, (x + pad, y + pad, size - pad*2, size - pad*2))
+                self.draw_text(str(item['count']), 16 if size >= 60 else 12, x + size - 12, y + size - 12, (255, 255, 255))
+                
+            elif item['type'] == 'GRENADE':
+                radius = 12 if size >= 60 else 10
+                pygame.draw.circle(self.screen, COLOR_GRENADE, (center_x, center_y), radius)
+                self.draw_text(str(item['count']), 16 if size >= 60 else 12, x + size - 12, y + size - 12, (255, 255, 255))
+                
+            elif item['type'] == 'CRYO':
+                pad = 15 if size >= 60 else 10
+                pygame.draw.rect(self.screen, COLOR_CRYO_NODE, (x + pad, y + pad, size - pad*2, size - pad*2))
+                self.draw_text(str(item['count']), 16 if size >= 60 else 12, x + size - 12, y + size - 12, (255, 255, 255))
+
     def draw_inventory(self):
         slot_size = 60
         gap = 10
@@ -889,27 +961,7 @@ class SystemGuardian:
 
         for i in range(5):
             x = start_x + i * (slot_size + gap)
-            rect = pygame.Rect(x, y, slot_size, slot_size)
-            border_color = COLOR_UI_SELECTED if i == self.selected_slot else COLOR_UI_BORDER
-            pygame.draw.rect(self.screen, COLOR_UI_BG, rect)
-            pygame.draw.rect(self.screen, border_color, rect, 3)
-            self.draw_text(str(i+1), 12, x + 10, y + 10, (150, 150, 150))
-            item = self.inventory[i]
-            if item:
-                if item['type'] == 'WEAPON':
-                    w_name = item.get('name', 'PISTOL')
-                    color = WEAPON_STATS.get(w_name, WEAPON_STATS['PISTOL'])['color']
-                    pygame.draw.circle(self.screen, color, (x + slot_size//2, y + slot_size//2), 10)
-                    self.draw_text(w_name[:3], 12, x + slot_size//2, y + slot_size - 10)
-                elif item['type'] == 'WALL':
-                    pygame.draw.rect(self.screen, COLOR_PLAYER_WALL, (x + 15, y + 15, slot_size-30, slot_size-30))
-                    self.draw_text(str(item['count']), 16, x + slot_size - 12, y + slot_size - 12, (255, 255, 255))
-                elif item['type'] == 'GRENADE':
-                    pygame.draw.circle(self.screen, COLOR_GRENADE, (x + slot_size//2, y + slot_size//2), 12)
-                    self.draw_text(str(item['count']), 16, x + slot_size - 12, y + slot_size - 12, (255, 255, 255))
-                elif item['type'] == 'CRYO':
-                    pygame.draw.rect(self.screen, COLOR_CRYO_NODE, (x + 15, y + 15, slot_size-30, slot_size-30))
-                    self.draw_text(str(item['count']), 16, x + slot_size - 12, y + slot_size - 12, (255, 255, 255))
+            self.draw_item_slot(x, y, slot_size, self.inventory[i], index=i, is_selected=(i == self.selected_slot))
 
     def draw_shop(self):
         self._draw_overlay_bg()
@@ -974,34 +1026,13 @@ class SystemGuardian:
         inv_y = panel_y + panel_h - 90
         self.draw_text("CURRENT INVENTORY:", 16, SCREEN_WIDTH//2, inv_y - 20, (180, 180, 180))
         
-        
         slot_size = 50
         gap = 10
         start_x = (SCREEN_WIDTH - (5 * slot_size + 4 * gap)) // 2
         
         for i in range(5):
             x = start_x + i * (slot_size + gap)
-            rect = pygame.Rect(x, inv_y, slot_size, slot_size)
-            pygame.draw.rect(self.screen, (20, 20, 30), rect)
-            pygame.draw.rect(self.screen, (100, 100, 100), rect, 2)
-            self.draw_text(str(i+1), 10, x + 8, inv_y + 8, (150, 150, 150))
-            
-            item = self.inventory[i]
-            if item:
-                if item['type'] == 'WEAPON':
-                    w_name = item.get('name', 'PISTOL')
-                    color = WEAPON_STATS.get(w_name, WEAPON_STATS['PISTOL'])['color']
-                    pygame.draw.circle(self.screen, color, (x + slot_size//2, inv_y + slot_size//2), 8)
-                    self.draw_text(w_name[:1], 14, x + slot_size//2, inv_y + slot_size//2, (0,0,0))
-                elif item['type'] == 'WALL':
-                    pygame.draw.rect(self.screen, COLOR_PLAYER_WALL, (x + 10, inv_y + 10, slot_size-20, slot_size-20))
-                    self.draw_text(str(item['count']), 12, x + slot_size - 10, inv_y + slot_size - 10, (255, 255, 255))
-                elif item['type'] == 'GRENADE':
-                    pygame.draw.circle(self.screen, COLOR_GRENADE, (x + slot_size//2, inv_y + slot_size//2), 10)
-                    self.draw_text(str(item['count']), 12, x + slot_size - 10, inv_y + slot_size - 10, (255, 255, 255))
-                elif item['type'] == 'CRYO':
-                    pygame.draw.rect(self.screen, COLOR_CRYO_NODE, (x + 10, inv_y + 10, slot_size-20, slot_size-20))
-                    self.draw_text(str(item['count']), 12, x + slot_size - 10, inv_y + slot_size - 10, (255, 255, 255))
+            self.draw_item_slot(x, inv_y, slot_size, self.inventory[i], index=i)
 
         self.draw_text("PRESS [B] OR [ESC] TO CLOSE", 16, SCREEN_WIDTH//2, panel_y + panel_h + 20, (150, 150, 150))
 

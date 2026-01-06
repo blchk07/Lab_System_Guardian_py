@@ -4,7 +4,7 @@ import math
 from settings import *
 
 class Particle:
-    base_surface = pygame.Surface((4, 4))
+    base_surface = pygame.Surface((PARTICLE_SIZE, PARTICLE_SIZE))
     def __init__(self, x, y, color, speed_mult=1.0, decay_speed=None):
         self.pos = pygame.Vector2(x, y)
         self.vel = pygame.Vector2(random.uniform(-4, 4), random.uniform(-4, 4)) * speed_mult
@@ -20,7 +20,7 @@ class Particle:
     def draw(self, surface, camera):
         self.base_surface.set_alpha(max(0, self.life))
         self.base_surface.fill(self.color)
-        surface.blit(self.base_surface, camera.apply_rect(pygame.Rect(self.pos.x, self.pos.y, 4, 4)))
+        surface.blit(self.base_surface, camera.apply_rect(pygame.Rect(self.pos.x, self.pos.y, PARTICLE_SIZE, PARTICLE_SIZE)))
 
 class Bullet:
     def __init__(self, x, y, angle, is_enemy=False, damage=10, speed=13.5, max_dist=1000, color=COLOR_BULLET):
